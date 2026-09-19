@@ -10,6 +10,8 @@
 #
 set -euo pipefail
 
+umask 077   # dumps and tarballs are 600/700 root-only: they contain all data
+
 BACKUP_DIR=/var/backups/odoo
 KEEP=${KEEP:-7}
 DB=${DB:-$(awk -F' = ' '/^db_name/{print $2}' /etc/odoo/odoo.conf)}
