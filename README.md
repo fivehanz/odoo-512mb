@@ -60,7 +60,8 @@ run exactly once; it also lets the deploy heal a crashed first run.
 | 8 | Create `odoo` DB + init modules (first run only) | — |
 | 9 | Systemd unit | `configs/odoo.service` → `/etc/systemd/system/odoo.service` |
 | 10 | Nginx vhost + self-signed cert | `configs/nginx-odoo.conf` → `/etc/nginx/sites-{available,enabled}/odoo.conf` |
-| 11 | Daily backup timer (04:30, keep 7) | `configs/backup.{service,timer}` → `/etc/systemd/system/`<br>`scripts/backup.sh` → `/usr/local/bin/odoo-backup` |
+| 11 | Fail2ban (Odoo-login brute force, nftables) + unattended-upgrades (Debian security updates, no auto-reboot) | `configs/fail2ban-jail.local` → `/etc/fail2ban/jail.local`<br>`configs/fail2ban-filter-odoo.conf` → `/etc/fail2ban/filter.d/odoo-login.conf`<br>`configs/apt-20auto-upgrades` → `/etc/apt/apt.conf.d/20auto-upgrades` |
+| 12 | Daily backup timer (04:30, keep 7) | `configs/backup.{service,timer}` → `/etc/systemd/system/`<br>`scripts/backup.sh` → `/usr/local/bin/odoo-backup` |
 
 ## Why source, not the official .deb
 
@@ -72,6 +73,10 @@ supported path is: Debian packages for everything apt can provide + a venv
 
 Odoo is pinned to a specific commit (currently `9a272ea…`, 2026-09-19).
 Bump `ODOO_COMMIT` in `deploy.sh` deliberately when you want an update.
+
+Node.js is deliberately **not** installed: Odoo 19's docs list it only for
+right-to-left interface languages (Arabic/Hebrew, via the `rtlcss` npm
+package). If you need RTL: `apt-get install nodejs npm && npm install -g rtlcss`.
 
 ## Database auth
 
@@ -138,6 +143,20 @@ sudo -u postgres pg_restore -d odoo --jobs=2 /var/backups/odoo/odoo_odoo_*.dump
 tar -C /var/lib -xzf /var/backups/odoo/odoo_filestore_*.tgz
 sudo systemctl restart odoo
 ```
+
+## Security
+
+- **unattended-upgrades** runs Debian security updates daily (apt timers). No
+  automatic reboots — a kernel update waits for a manual `reboot`.
+- **fail2ban** watches nginx access logs for failed `POST /web/login`
+  (a failure re-renders with HTTP 200, a success redirects 302):
+  `fail2ban-client status odoo-login`, and `journalctl -u fail2ban` to see bans.
+  The filter lives in the repo too, so log lines can't drift from the repo.
+- RAM cost: fail2ban is a Python daemon, ~30–40 MB idle. If you ever want it
+  gone, the lighter native defense is nginx `limit_req` on `/web/login`
+  (zero extra daemons) — not included because fail2ban was the ask.
+
+Tune bans in `configs/fail2ban-jail.local` (maxretry / findtime / bantime).
 
 ## Monitoring / troubleshooting
 

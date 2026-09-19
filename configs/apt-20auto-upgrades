@@ -1,0 +1,11 @@
+// Managed by odoo-512mb repo (symlinked to /etc/apt/apt.conf.d/20auto-upgrades).
+// Automatic Debian security updates via unattended-upgrades + apt timers.
+// No automatic reboots: a kernel update waits for a manual restart.
+
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";

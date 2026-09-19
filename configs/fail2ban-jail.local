@@ -1,0 +1,19 @@
+# Managed by odoo-512mb repo (symlinked to /etc/fail2ban/jail.local).
+# Brute-force defense for the Odoo login page, driven by nginx access logs:
+# a failed form login re-renders with HTTP 200, a successful one redirects 302.
+# Ban policy: 5 failures in 10 minutes -> 1 hour nftables ban on :443.
+
+[DEFAULT]
+banaction = nftables-multiport
+banaction_allports = nftables-allports
+mta = none
+
+[odoo-login]
+enabled = true
+filter = odoo-login
+logpath = /var/log/nginx/access.log
+port = 443
+maxretry = 5
+findtime = 600
+bantime = 3600
+action = %(action_)s

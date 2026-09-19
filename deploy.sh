@@ -63,7 +63,8 @@ apt-get install -y --no-install-recommends \
   python3-urllib3 python3-usb python3-vobject python3-werkzeug python3-xlrd \
   python3-xlsxwriter python3-xlwt python3-zeep python3-ldap python3-renderpm \
   fonts-dejavu-core fonts-inconsolata fonts-font-awesome \
-  fonts-noto-core fonts-roboto-unhinted gsfonts libjs-underscore
+  fonts-noto-core fonts-roboto-unhinted gsfonts libjs-underscore \
+  fail2ban unattended-upgrades nftables
 
 # ---------------------------------------------------------------------------
 # 2. Drop unneeded services (every daemon matters on 512 MB)
@@ -206,7 +207,21 @@ systemctl daemon-reload
 systemctl enable --now odoo-backup.timer
 
 # ---------------------------------------------------------------------------
-# 11. Health checks + summary
+# 11. Security: automatic Debian 13 security updates + fail2ban for the
+#     Odoo login page (nftables ban, driven by nginx access log -- see the
+#     filter for why 200/422 on POST /web/login == failed login)
+# ---------------------------------------------------------------------------
+log "Configuring security (unattended-upgrades + fail2ban)"
+ln -sfn "$REPO/configs/apt-20auto-upgrades" /etc/apt/apt.conf.d/20auto-upgrades
+systemctl enable --now apt-daily.timer apt-daily-upgrade.timer
+
+ln -sfn "$REPO/configs/fail2ban-jail.local" /etc/fail2ban/jail.local
+ln -sfn "$REPO/configs/fail2ban-filter-odoo.conf" /etc/fail2ban/filter.d/odoo-login.conf
+systemctl enable --now fail2ban
+systemctl restart fail2ban
+
+# ---------------------------------------------------------------------------
+# 12. Health checks + summary
 # ---------------------------------------------------------------------------
 log "Health checks"
 for i in 1 2 3 4 5; do
@@ -222,5 +237,6 @@ echo "  Odoo:          https://<server-ip>/          (login at /web/login)"
 echo "  Database:      $DB_NAME        filestore: $ODOO_DATA"
 echo "  Configs:       symlinked from $REPO into /etc -- edit in the repo, re-run ./deploy.sh"
 echo "  Backups:       daily 04:30 -> /var/backups/odoo (keep 7, see README for restore)"
+echo "  Security:      unattended-upgrades (daily) + fail2ban (5 fails/10min -> 1h ban)"
 echo "  Master passwd: in $REPO/configs/odoo.conf (admin_passwd)"
 echo "  TLS:           self-signed, see README for Let's Encrypt on a real domain"
