@@ -48,11 +48,11 @@ else
 fi
 
 not_enabled=()
-for u in odoo nginx odoo-backup.timer apt-daily.timer apt-daily-upgrade.timer; do
+for u in odoo nginx zramswap odoo-backup.timer apt-daily.timer apt-daily-upgrade.timer; do
   systemctl is-enabled --quiet "$u" || not_enabled+=("$u")
 done
 if [ "${#not_enabled[@]}" -eq 0 ]; then
-  ok "enabled at boot: odoo, nginx, odoo-backup.timer, apt-daily{,-upgrade}.timer"
+  ok "enabled at boot: odoo, nginx, zramswap, odoo-backup.timer, apt-daily{,-upgrade}.timer"
 else
   bad "not enabled at boot: ${not_enabled[*]}"
 fi
