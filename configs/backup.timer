@@ -1,0 +1,11 @@
+# Managed by odoo-512mb repo (symlinked to /etc/systemd/system/odoo-backup.timer).
+
+[Unit]
+Description=Daily Odoo backup
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

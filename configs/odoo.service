@@ -1,0 +1,21 @@
+# Managed by odoo-512mb repo (symlinked to /etc/systemd/system/odoo.service).
+
+[Unit]
+Description=Odoo 19 (odoo-512mb deterministic deploy)
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=odoo
+Group=odoo
+ExecStart=/opt/odoo/venv/bin/python /opt/odoo/odoo/odoo-bin -c /etc/odoo/odoo.conf
+WorkingDirectory=/opt/odoo
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGINT
+TimeoutStopSec=120
+# ponytail: no MemoryMax yet -- watch `systemd-cgtop`, add MemoryMax=512M if odoo ever wanders
+
+[Install]
+WantedBy=multi-user.target

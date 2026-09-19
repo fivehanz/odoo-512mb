@@ -1,0 +1,6 @@
+# Managed by odoo-512mb repo (symlinked to /etc/default/zramswap).
+# 256 MB compressed swap (PERCENT of RAM), zstd, priority above the disk swapfile.
+
+ALGO=zstd
+PERCENT=50
+PRIORITY=100

@@ -1,0 +1,8 @@
+# Managed by odoo-512mb repo (symlinked to /etc/systemd/system/odoo-backup.service).
+
+[Unit]
+Description=Odoo backup (DB dump + filestore)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/odoo-backup
