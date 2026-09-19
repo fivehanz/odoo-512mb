@@ -2,7 +2,15 @@
 
 [Unit]
 Description=Odoo backup (DB dump + filestore)
+After=postgresql.service
 
 [Service]
 Type=oneshot
+# Type=oneshot inherits systemd's 90 s DefaultTimeoutStartSec. A database that
+# takes longer than that to dump would be SIGTERMed mid-write, so the timeout is
+# removed and backup.sh proves the archive before publishing it.
+TimeoutStartSec=infinity
+# How many of each artifact to keep. Lower it if / fills up: this is the knob
+# that decides how much of the disk the backup set may hold.
+Environment=KEEP=7
 ExecStart=/usr/local/bin/odoo-backup

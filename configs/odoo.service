@@ -17,6 +17,10 @@ KillSignal=SIGINT
 TimeoutStopSec=120
 # private-to-odoo files: attachments/temp land 600/700, never world-readable
 UMask=0077
+# 512 MB has to shed something under pressure. Odoo is the largest RSS and
+# restarts cleanly, so let the OOM killer take it rather than a PostgreSQL
+# backend (which would force crash recovery on a database that has no replicas).
+OOMScoreAdjust=200
 # ponytail: no MemoryMax yet -- watch `systemd-cgtop`, add MemoryMax=512M if odoo ever wanders
 
 [Install]

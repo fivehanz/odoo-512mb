@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 #
 # Deterministic Odoo 19 deploy for a 512 MB Debian 13 VM (Vultr $2.50 plan).
-# Repo is the single source of truth: every config file below is symlinked
-# from this repo into /etc. Edit a file here, re-run this script, done.
+# Repo is the single source of truth: the config files below are symlinked from
+# this repo into /etc (odoo.conf is the one exception -- it is rendered, so the
+# master password never lands in git). Edit a file here, re-run, done.
 #
 # Usage:  sudo ./deploy.sh
 #
-# Idempotent: safe to re-run at any time; only missing steps execute.
-# Everything is serialized and cache-heavy by design (see README).
+# Idempotent: safe to re-run at any time. The slow, network-bound steps (apt,
+# pip) are gated on marker files and skip themselves once satisfied; everything
+# else re-runs every time because that is what makes an edit take effect.
+# Run ./scripts/check.sh first -- it catches config typos in a second, before
+# they reach the live box.
 #
 set -euo pipefail
 
@@ -16,7 +20,6 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 ODOO_COMMIT=9a272ea4bffb245e9ec42190bff6b1c6fbefd548   # odoo/odoo 19.0 branch, 2026-09-19
 PG_MAJOR=17                                            # Debian 13 ships PostgreSQL 17
-DB_NAME=odoo
 MODULES=base,contacts,discuss,calendar,crm,sale_management,project
 SWAPFILE=/swapfile
 SWAP_SIZE=1G
@@ -33,6 +36,12 @@ ODOO_CONF=/etc/odoo/odoo.conf
 
 log() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
+
+# The database name has exactly one owner: configs/odoo.conf (db_name).
+# scripts/backup.sh parses the rendered /etc file the same way, so there is no
+# second literal that can drift out of sync.
+DB_NAME=$(awk -F' = ' '/^db_name/{print $2}' "$REPO/configs/odoo.conf")
+[ -n "$DB_NAME" ] || die "no db_name in $REPO/configs/odoo.conf"
 
 [ "$(id -u)" -eq 0 ] || die "run as root: sudo ./deploy.sh"
 
@@ -87,6 +96,10 @@ systemctl restart systemd-journald
 
 ln -sfn "$REPO/configs/zramswap" /etc/default/zramswap
 systemctl restart zramswap 2>/dev/null || systemctl start zramswap
+# Assert it rather than assume it: with swappiness 100 (configs/sysctl.conf) a
+# zram that failed to start sends every reclaim straight to the 1 GB disk
+# swapfile, which is worse than the stock configuration and otherwise silent.
+swapon --show | grep -q '^/dev/zram0' || die "zram is not active (see: systemctl status zramswap, zramctl)"
 
 if ! grep -q "$SWAPFILE" /etc/fstab; then
   echo "creating $SWAPFILE ($SWAP_SIZE)"
@@ -99,13 +112,20 @@ fi
 swapon "$SWAPFILE" 2>/dev/null || true   # no-op if already active
 
 # ---------------------------------------------------------------------------
-# 4. PostgreSQL: repo-owned postgresql.conf, symlinked over the stock file
+# 4. PostgreSQL: repo-owned postgresql.conf + pg_hba.conf, symlinked over the
+#    stock files so tuning and auth are both pinned in git
 # ---------------------------------------------------------------------------
 log "Configuring PostgreSQL $PG_MAJOR"
 PGDIR=/etc/postgresql/$PG_MAJOR/main
 [ -d "$PGDIR" ] || die "postgresql $PG_MAJOR cluster directory missing: $PGDIR"
 ln -sfn "$REPO/configs/postgresql.conf" "$PGDIR/postgresql.conf"
+# Pins the auth model (peer on the socket, no TCP) instead of inheriting
+# whatever Debian ships. A bad pg_hba.conf does not stop PostgreSQL from
+# starting, only connecting, so this is verified below.
+ln -sfn "$REPO/configs/pg_hba.conf" "$PGDIR/pg_hba.conf"
 systemctl restart postgresql
+sudo -u postgres psql -tAc 'SELECT 1' >/dev/null 2>&1 \
+  || die "postgres refused the admin connection after config apply (check $PGDIR/pg_hba.conf, /var/log/postgresql)"
 
 if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='odoo'" | grep -q 1; then
   sudo -u postgres createuser -s odoo
@@ -131,24 +151,44 @@ if [ ! -x "$ODOO_VENV/bin/python" ]; then
 fi
 
 log "Installing Odoo python requirements (versions pinned in odoo/requirements.txt)"
-"$ODOO_VENV/bin/pip" install --no-cache-dir -r "$ODOO_SRC/requirements.txt"
+# Gated on the requirements file's hash: a full pip resolve is minutes of
+# network work on this box, and re-running it to change an nginx line is the
+# difference between a 5-second and a 5-minute deploy. The hash changes whenever
+# ODOO_COMMIT does, which is the only thing that can change the file.
+REQ_MARKER="$ODOO_HOME/.requirements.sha256"
+REQ_HASH=$(sha256sum "$ODOO_SRC/requirements.txt" | cut -d' ' -f1)
+if [ ! -f "$REQ_MARKER" ] || [ "$(cat "$REQ_MARKER")" != "$REQ_HASH" ]; then
+  "$ODOO_VENV/bin/pip" install --no-cache-dir -r "$ODOO_SRC/requirements.txt"
+  echo "$REQ_HASH" > "$REQ_MARKER"
+else
+  echo "requirements unchanged (${REQ_HASH:0:12}), skipping pip"
+fi
 
 # ---------------------------------------------------------------------------
-# 6. odoo user, data dirs, config (symlinked from repo)
+# 6. odoo user, data dirs, config (rendered from the repo, then symlink-free:
+#    the live file is a real file so the master password never enters git)
 # ---------------------------------------------------------------------------
 log "Creating odoo user and directories"
 id -u odoo >/dev/null 2>&1 \
   || useradd --system --home-dir "$ODOO_DATA" --create-home --shell /usr/sbin/nologin odoo
 mkdir -p "$ODOO_DATA" /etc/odoo
 
-# admin master password: generate once on first deploy, store in the repo file
-if grep -q '__GENERATE__' "$REPO/configs/odoo.conf"; then
-  sed -i "s|__GENERATE__|$(openssl rand -hex 24)|" "$REPO/configs/odoo.conf"
+# admin master password: rendered here, never in the repo. The placeholder in
+# configs/odoo.conf stays a placeholder forever, so the tracked file never
+# carries a secret, the working tree stays clean for `git pull`, and the deploy
+# never chowns anything inside the clone.
+rm -f "$ODOO_CONF"
+if [ -f /etc/odoo/.admin_passwd ]; then
+  ADMIN_PASSWD=$(cat /etc/odoo/.admin_passwd)      # keep it across re-deploys
+else
+  ADMIN_PASSWD=$(openssl rand -hex 24)
+  printf '%s' "$ADMIN_PASSWD" > /etc/odoo/.admin_passwd
 fi
-
-ln -sfn "$REPO/configs/odoo.conf" "$ODOO_CONF"
-chown root:odoo "$REPO/configs/odoo.conf"
-chmod 640 "$REPO/configs/odoo.conf"
+sed "s|__GENERATE__|$ADMIN_PASSWD|" "$REPO/configs/odoo.conf" > "$ODOO_CONF"
+chown root:odoo "$ODOO_CONF"
+chmod 640 "$ODOO_CONF"
+chown root:odoo /etc/odoo/.admin_passwd
+chmod 640 /etc/odoo/.admin_passwd
 chown -R odoo:odoo "$ODOO_DATA"
 
 # ---------------------------------------------------------------------------
@@ -231,12 +271,24 @@ for i in 1 2 3 4 5; do
 done
 curl -kfsS -o /dev/null https://127.0.0.1/web/login || die "nginx https not answering"
 
+# Assert the parts a 200 from Odoo does not prove: the jail that guards the
+# login form, the timer that carries the backups, and one real backup run.
+# A backup nobody has executed is not a backup.
+fail2ban-client status odoo-login >/dev/null 2>&1 \
+  || die "fail2ban jail 'odoo-login' is not active (fail2ban-client status)"
+systemctl is-active --quiet odoo-backup.timer \
+  || die "backup timer is not active (systemctl status odoo-backup.timer)"
+systemctl start odoo-backup.service \
+  || die "first backup failed (journalctl -u odoo-backup)"
+ls -1 /var/backups/odoo/*.dump >/dev/null 2>&1 \
+  || die "backup ran but produced no dump (journalctl -u odoo-backup)"
+
 echo
 echo "Deploy complete."
 echo "  Odoo:          https://<server-ip>/          (login at /web/login)"
 echo "  Database:      $DB_NAME        filestore: $ODOO_DATA"
-echo "  Configs:       symlinked from $REPO into /etc -- edit in the repo, re-run ./deploy.sh"
+echo "  Configs:       symlinked from $REPO into /etc (odoo.conf rendered) -- edit in the repo, re-run ./deploy.sh"
 echo "  Backups:       daily 04:30 -> /var/backups/odoo (keep 7, see README for restore)"
 echo "  Security:      unattended-upgrades (daily) + fail2ban (5 fails/10min -> 1h ban)"
-echo "  Master passwd: in $REPO/configs/odoo.conf (admin_passwd)"
+echo "  Master passwd: /etc/odoo/.admin_passwd (same value in /etc/odoo/odoo.conf)"
 echo "  TLS:           self-signed, see README for Let's Encrypt on a real domain"
