@@ -48,11 +48,11 @@ else
 fi
 
 not_enabled=()
-for u in odoo nginx zramswap odoo-backup.timer apt-daily.timer apt-daily-upgrade.timer; do
+for u in odoo nginx zramswap ufw odoo-backup.timer apt-daily.timer apt-daily-upgrade.timer; do
   systemctl is-enabled --quiet "$u" || not_enabled+=("$u")
 done
 if [ "${#not_enabled[@]}" -eq 0 ]; then
-  ok "enabled at boot: odoo, nginx, zramswap, odoo-backup.timer, apt-daily{,-upgrade}.timer"
+  ok "enabled at boot: odoo, nginx, zramswap, ufw, odoo-backup.timer, apt-daily{,-upgrade}.timer"
 else
   bad "not enabled at boot: ${not_enabled[*]}"
 fi
@@ -264,6 +264,14 @@ info "these are on the same disk as the data -- copy them off the VM"
 # ---------------------------------------------------------------------------
 section "Security"
 # ---------------------------------------------------------------------------
+if ! ufw status 2>/dev/null | grep -q '^Status: active'; then
+  bad "ufw is not active (ufw status)"
+elif [ "$(ufw status | grep -cE '^(22|80|443)/tcp +ALLOW')" -eq 3 ]; then
+  ok "ufw active: 22, 80 and 443 allowed"
+else
+  bad "ufw active but 22/80/443 are not all allowed (ufw status)"
+fi
+
 if fail2ban-client status odoo-login >/dev/null 2>&1; then
   fresh="$(fail2ban-client status odoo-login 2>/dev/null | awk -F: '/Total failed/{gsub(/ /,"",$2); f=$2} /Currently banned/{gsub(/ /,"",$2); b=$2} END{print f+0, b+0}')"
   ok "jail 'odoo-login' is loaded (total failed: ${fresh%% *}, currently banned: ${fresh##* })"

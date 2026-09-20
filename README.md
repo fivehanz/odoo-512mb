@@ -79,7 +79,7 @@ run exactly once; it also lets the deploy heal a crashed first run.
 | 8 | Create `odoo` DB + init modules (first run only) | — |
 | 9 | Systemd unit | `configs/odoo.service` → `/etc/systemd/system/odoo.service` |
 | 10 | Nginx vhost + self-signed cert | `configs/nginx-odoo.conf` → `/etc/nginx/sites-{available,enabled}/odoo.conf` |
-| 11 | Fail2ban (Odoo-login brute force, nftables) + unattended-upgrades (Debian security updates, no auto-reboot) | `configs/fail2ban-jail.local` → `/etc/fail2ban/jail.local`<br>`configs/fail2ban-filter-odoo.conf` → `/etc/fail2ban/filter.d/odoo-login.conf`<br>`configs/apt-20auto-upgrades` → `/etc/apt/apt.conf.d/20auto-upgrades` |
+| 11 | ufw (default deny incoming; 22/80/443 open) + fail2ban (Odoo-login brute force, nftables) + unattended-upgrades (Debian security updates, no auto-reboot) | `configs/fail2ban-jail.local` → `/etc/fail2ban/jail.local`<br>`configs/fail2ban-filter-odoo.conf` → `/etc/fail2ban/filter.d/odoo-login.conf`<br>`configs/apt-20auto-upgrades` → `/etc/apt/apt.conf.d/20auto-upgrades` |
 | 12 | Daily backup timer (04:30, keep 7) | `configs/backup.{service,timer}` → `/etc/systemd/system/`<br>`scripts/backup.sh` → `/usr/local/bin/odoo-backup` |
 
 ## Task shortcuts (just)
@@ -243,17 +243,14 @@ Restoring over an existing database, add `--clean --if-exists` to `pg_restore`.
 - RAM cost: fail2ban is a Python daemon, ~30–40 MB idle. If you ever want it
   gone, the lighter native defense is nginx `limit_req` on `/web/login`
   (zero extra daemons) — not included because fail2ban was the ask.
-- **No host firewall, by design.** Only 22 (SSH), 80 and 443 are reachable;
-  Odoo and PostgreSQL bind to loopback, and `nftables` is installed solely as
-  fail2ban's ban backend. If you would rather enforce that in the kernel,
-  Vultr's firewall is the lower-risk place; a local ruleset must keep SSH open:
-
-  ```bash
-  nft add table inet filter
-  nft add chain inet filter input '{ type filter hook input priority 0; policy drop; }'
-  nft add rule inet filter input ct state established,related accept
-  nft add rule inet filter input tcp dport '{ 22, 80, 443 }' accept
-  ```
+- **ufw is the host firewall**: default deny incoming, allow outgoing, only
+  22 (SSH), 80 and 443 open. WebSocket rides the same TCP/443 listener and
+  nothing here listens on UDP. The rules live in `deploy.sh` (step 11) rather
+  than a config file, because ufw rewrites `/etc/ufw/user.rules` itself; edit
+  the script and re-run to change them (`ufw status verbose` shows the live
+  set). Keep your SSH port in that list before enabling on a box you reach
+  over SSH. Odoo and PostgreSQL bind to loopback, so this is the outer layer;
+  `nftables` stays fail2ban's ban backend and the two coexist.
 
 Left stock on purpose: `/etc/apt/apt.conf.d/50unattended-upgrades` (which update
 origins are trusted) and the fail2ban `sshd` jail above. Only

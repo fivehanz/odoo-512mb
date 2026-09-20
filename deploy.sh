@@ -73,7 +73,7 @@ apt-get install -y --no-install-recommends \
   python3-xlsxwriter python3-xlwt python3-zeep python3-ldap python3-renderpm \
   fonts-dejavu-core fonts-inconsolata fonts-font-awesome \
   fonts-noto-core fonts-roboto-unhinted gsfonts libjs-underscore \
-  fail2ban unattended-upgrades nftables
+  fail2ban unattended-upgrades nftables ufw
 
 # ---------------------------------------------------------------------------
 # 2. Drop unneeded services (every daemon matters on 512 MB)
@@ -249,11 +249,19 @@ systemctl daemon-reload
 systemctl enable --now odoo-backup.timer
 
 # ---------------------------------------------------------------------------
-# 11. Security: automatic Debian 13 security updates + fail2ban for the
-#     Odoo login page (nftables ban, driven by nginx access log -- see the
-#     filter for why 200/422 on POST /web/login == failed login)
+# 11. Security: ufw (default deny incoming, 22/80/443 open) + automatic
+#     Debian 13 security updates + fail2ban for the Odoo login page (nftables
+#     ban, driven by nginx access log -- see the filter for why 200/422 on
+#     POST /web/login == failed login)
 # ---------------------------------------------------------------------------
-log "Configuring security (unattended-upgrades + fail2ban)"
+log "Configuring security (ufw + unattended-upgrades + fail2ban)"
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw --force enable
+
 ln -sfn "$REPO/configs/apt-20auto-upgrades" /etc/apt/apt.conf.d/20auto-upgrades
 systemctl enable --now apt-daily.timer apt-daily-upgrade.timer
 
@@ -273,9 +281,14 @@ for i in 1 2 3 4 5; do
 done
 curl -kfsS -o /dev/null https://127.0.0.1/web/login || die "nginx https not answering"
 
-# Assert the parts a 200 from Odoo does not prove: the jail that guards the
-# login form, the timer that carries the backups, and one real backup run.
-# A backup nobody has executed is not a backup.
+# Assert the parts a 200 from Odoo does not prove: the firewall that makes the
+# box reachable from outside, the jail that guards the login form, the timer
+# that carries the backups, and one real backup run. A backup nobody has
+# executed is not a backup.
+ufw status | grep -q '^Status: active' \
+  || die "ufw is not active (ufw status)"
+[ "$(ufw status | grep -cE '^(22|80|443)/tcp +ALLOW')" -eq 3 ] \
+  || die "ufw does not allow 22, 80 and 443 (ufw status)"
 fail2ban-client status odoo-login >/dev/null 2>&1 \
   || die "fail2ban jail 'odoo-login' is not active (fail2ban-client status)"
 systemctl is-active --quiet odoo-backup.timer \
