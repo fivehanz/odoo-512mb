@@ -20,7 +20,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 ODOO_COMMIT=9a272ea4bffb245e9ec42190bff6b1c6fbefd548   # odoo/odoo 19.0 branch, 2026-09-19
 PG_MAJOR=17                                            # Debian 13 ships PostgreSQL 17
-MODULES=base,contacts,discuss,calendar,crm,sale_management,project
+MODULES=base,contacts,mail,calendar,crm,project
 SWAPFILE=/swapfile
 SWAP_SIZE=1G
 
@@ -206,7 +206,7 @@ if [ ! -f "$ODOO_DATA/.initialized" ]; then
     log "Initializing database '$DB_NAME' with modules: $MODULES (several minutes)"
   fi
   sudo -u odoo "$ODOO_VENV/bin/python" "$ODOO_SRC/odoo-bin" \
-    -c "$ODOO_CONF" -d "$DB_NAME" --without-demo=all -i "$MODULES" --stop-after-init
+    -c "$ODOO_CONF" -d "$DB_NAME" --without-demo=True -i "$MODULES" --stop-after-init
   touch "$ODOO_DATA/.initialized"
 fi
 

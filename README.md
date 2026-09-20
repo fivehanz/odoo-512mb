@@ -58,7 +58,7 @@ that is what makes an edit take effect.
 Afterwards:
 
 - Odoo: `https://<server-ip>/web/login` (self-signed cert — accept the warning)
-- Default install: base, contacts, discuss, calendar, crm, sale_management, project
+- Default install: base, contacts, mail, calendar, crm, project
 
 To change the module set later: edit `MODULES` in `deploy.sh`, then
 `rm /var/lib/odoo/.initialized` and re-run `sudo ./deploy.sh` (re-runs `-i` on
