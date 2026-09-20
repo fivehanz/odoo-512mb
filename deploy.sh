@@ -158,6 +158,7 @@ log "Installing Odoo python requirements (versions pinned in odoo/requirements.t
 REQ_MARKER="$ODOO_HOME/.requirements.sha256"
 REQ_HASH=$(sha256sum "$ODOO_SRC/requirements.txt" | cut -d' ' -f1)
 if [ ! -f "$REQ_MARKER" ] || [ "$(cat "$REQ_MARKER")" != "$REQ_HASH" ]; then
+  "$ODOO_VENV/bin/pip" install --no-cache-dir --ignore-installed setuptools
   "$ODOO_VENV/bin/pip" install --no-cache-dir -r "$ODOO_SRC/requirements.txt"
   echo "$REQ_HASH" > "$REQ_MARKER"
 else
