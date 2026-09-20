@@ -222,7 +222,8 @@ systemctl enable --now odoo
 # 9. Nginx reverse proxy + TLS (self-signed by default; see README for LE)
 # ---------------------------------------------------------------------------
 log "Configuring nginx (TLS terminated at nginx)"
-mkdir -p /etc/nginx/ssl /var/www/html
+mkdir -p /etc/nginx/ssl /var/www/html /var/cache/nginx
+install -d -o www-data -g www-data -m 0700 /var/cache/nginx/odoo
 if [ ! -f /etc/nginx/ssl/odoo.key ]; then
   openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
     -subj "/CN=odoo-512mb" \
