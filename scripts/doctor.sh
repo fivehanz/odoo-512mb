@@ -195,6 +195,10 @@ code="$(curl -ks --max-time 5 -o /dev/null -w '%{http_code}' https://127.0.0.1/w
 [ "$code" = "200" ] && ok "nginx answers on https://127.0.0.1 (200)" \
   || bad "nginx on :443 returned '${code:-no response}' (nginx -t, journalctl -u nginx)"
 
+code="$(curl -ks --max-time 5 -o /dev/null -w '%{http_code}' "https://[::1]/web/login" || true)"
+[ "$code" = "200" ] && ok "nginx answers on https://[::1] (200)" \
+  || bad "nginx on [::1]:443 returned '${code:-no response}' (nginx -t, journalctl -u nginx)"
+
 code="$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1/web/login || true)"
 case "$code" in
   301|302|308) ok "port 80 redirects to HTTPS ($code)" ;;

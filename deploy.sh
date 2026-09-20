@@ -280,6 +280,7 @@ for i in 1 2 3 4 5; do
   sleep 2
 done
 curl -kfsS -o /dev/null https://127.0.0.1/web/login || die "nginx https not answering"
+curl -kfsS -o /dev/null "https://[::1]/web/login" || die "nginx https not answering on IPv6"
 
 # Assert the parts a 200 from Odoo does not prove: the firewall that makes the
 # box reachable from outside, the jail that guards the login form, the timer
